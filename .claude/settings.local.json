@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go version:*)",
+      "Bash(pkg-config --modversion webkit2gtk-4.1)",
+      "Bash(pkg-config --modversion webkit2gtk-4.0)",
+      "Bash(rpm -qa)",
+      "Bash(dnf list:*)",
+      "Bash(find /usr/lib* -name \"libwebkit*\")",
+      "Bash(find /usr/lib* -name \"libglib*\")",
+      "Bash(ls /usr/bin/chrom*)",
+      "Bash(go get:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(./ytdl)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(google-chrome --version)",
+      "Bash(chromium-browser --version)",
+      "Bash(google-chrome --remote-debugging-port=9222 --headless --disable-gpu)",
+      "Bash(curl -s http://127.0.0.1:9222/json/version)",
+      "Bash(kill %1)",
+      "Bash(go mod:*)",
+      "Bash(rpm -q gcc libX11-devel mesa-libGL-devel)",
+      "Bash(rpm -q libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel)",
+      "Bash(wait)",
+      "Bash(GOFLAGS=\"-mod=mod\" go mod tidy)",
+      "Bash(GONOSUMCHECK=* GOFLAGS=\"-mod=mod\" go build -o ytdl .)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(GOFLAGS=\"-mod=mod\" go build -o ytdl .)"
+    ]
+  }
+}
