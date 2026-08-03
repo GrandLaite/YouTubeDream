@@ -1,7 +1,10 @@
-BINARY := ytdl
-BUILD_FLAGS := -ldflags="-s -w"
+BINARY := ytdl.exe
+BUILD_FLAGS := -ldflags="-s -w -H windowsgui"
 
-.PHONY: build run clean
+EMBED_BINARY := embed-thumbs.exe
+EMBED_FLAGS := -ldflags="-s -w"
+
+.PHONY: build run clean embed-thumbs
 
 build:
 	go build $(BUILD_FLAGS) -o $(BINARY) .
@@ -9,5 +12,8 @@ build:
 run: build
 	./$(BINARY)
 
+embed-thumbs:
+	go build $(EMBED_FLAGS) -o $(EMBED_BINARY) ./tools/embed-thumbs
+
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(EMBED_BINARY)

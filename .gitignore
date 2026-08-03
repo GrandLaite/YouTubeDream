@@ -1,0 +1,23 @@
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Linux/macOS build output (matches BINARY in Makefile)
+/ytdl
+/embed-thumbs
+
+# Go test/coverage
+*.test
+*.out
+
+# Local editor / tooling state
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# OS junk
+Thumbs.db
+.DS_Store
