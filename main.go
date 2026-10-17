@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -201,7 +202,7 @@ func sanitizeFolderName(s string) string {
 func (u *UI) build() fyne.CanvasObject {
 	// ── URL section ──────────────────────────────────
 	u.urlEntry = widget.NewEntry()
-	u.urlEntry.SetPlaceHolder("https://www.youtube.com/watch?v=…")
+	u.urlEntry.SetPlaceHolder("Ссылка на YouTube или X: watch?v=… / x.com/…/status/…")
 	u.urlEntry.OnSubmitted = func(_ string) { u.doFetch() }
 
 	u.fetchBtn = widget.NewButton("Получить", u.doFetch)
@@ -448,10 +449,36 @@ func (u *UI) cookiesBrowser() string {
 
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
+// showFetchError показывает ошибку и, если она похожа на требование логина,
+// подсказывает включить cookies — у X без авторизации закрыта заметная часть
+// роликов (приватные и «чувствительные» твиты).
+func (u *UI) showFetchError(err error, rawURL string) {
+	if u.cookiesBrowser() == "" && NeedsAuthError(err.Error()) {
+		site := "сайт"
+		if IsTwitterURL(rawURL) {
+			site = "X"
+		}
+		err = fmt.Errorf("%s\n\n%s требует авторизации для этого видео.\n"+
+			"Выберите браузер в поле «Cookies из браузера» — тот, где вы залогинены, — и повторите.",
+			err.Error(), site)
+	}
+	dialog.ShowError(err, u.win)
+}
+
 func (u *UI) doFetch() {
 	rawURL := strings.TrimSpace(u.urlEntry.Text)
 	if rawURL == "" {
 		dialog.ShowError(fmt.Errorf("введите ссылку"), u.win)
+		return
+	}
+
+	// Лента профиля X не поддерживается yt-dlp — говорим об этом сразу,
+	// не гоняя пользователя через невнятную ошибку "Unsupported URL".
+	if IsTwitterProfileURL(rawURL) {
+		dialog.ShowError(errors.New(
+			"это ссылка на профиль X, а не на видео.\n\n"+
+				"Выгрузка всей ленты не поддерживается — откройте нужный твит "+
+				"и вставьте ссылку вида x.com/username/status/…"), u.win)
 		return
 	}
 
@@ -479,7 +506,7 @@ func (u *UI) doFetch() {
 		u.fetchBtn.Enable()
 
 		if err != nil {
-			dialog.ShowError(err, u.win)
+			u.showFetchError(err, rawURL)
 			return
 		}
 
@@ -506,7 +533,7 @@ func (u *UI) doFetchChannel(rawURL string) {
 		u.fetchBtn.Enable()
 
 		if err != nil {
-			dialog.ShowError(err, u.win)
+			u.showFetchError(err, rawURL)
 			return
 		}
 
@@ -740,7 +767,7 @@ func (u *UI) updateHint() {
 		"WebM": "VP9/AV1 + Opus → нативные кодеки YouTube, слияние без потерь качества.",
 		"MKV":  "Лучшее качество: любые кодеки без перекодирования, широкая поддержка плеерами.",
 		"MP3":  "Аудио конвертируется в MP3 (небольшая потеря качества).",
-		"M4A":  "Нативный AAC из YouTube — без перекодирования, лучшее качество аудио.",
+		"M4A":  "Нативный AAC (YouTube, X) — без перекодирования, лучшее качество аудио.",
 	}
 	u.hintLabel.SetText(hints[u.formatSel.Selected])
 }

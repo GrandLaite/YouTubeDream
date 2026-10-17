@@ -59,6 +59,9 @@ type ytDLPRaw struct {
 	Uploader  string                   `json:"uploader"`
 	Channel   string                   `json:"channel"`
 	Formats   []map[string]interface{} `json:"formats"`
+	// Твит с несколькими видео отдаётся как плейлист: formats лежат
+	// не в корне, а во вложенных entries.
+	Entries []ytDLPRaw `json:"entries"`
 }
 
 var (
@@ -73,12 +76,55 @@ var (
 	mergeRe        = regexp.MustCompile(`\[Merger\]|Merging formats into`)
 	mergerOutRe    = regexp.MustCompile(`Merging formats into "([^"]+)"`)
 	alreadyDoneRe  = regexp.MustCompile(`\[download\]\s+(.+?)\s+has already been downloaded`)
-	infoLineRe     = regexp.MustCompile(`^\[(youtube|info|ExtractAudio|VideoConvertor|FixupM3u8|Metadata)\]`)
+	infoLineRe     = regexp.MustCompile(`^\[(youtube|twitter|info|ExtractAudio|VideoConvertor|FixupM3u8|Metadata)\]`)
 	formatSuffixRe = regexp.MustCompile(`\.f\d+$`)
 
-	// одиночные видео — всё остальное считаем каналом/плейлистом
-	singleVideoRe = regexp.MustCompile(`(?i)(watch\?v=|youtu\.be/|/shorts/|/live/)`)
+	// Одиночные видео: YouTube (watch/youtu.be/shorts/live) и твит X с видео.
+	singleVideoRe = regexp.MustCompile(`(?i)(watch\?v=|youtu\.be/|/shorts/|/live/|/status(?:es)?/\d+)`)
+
+	// Списки видео: плейлисты, каналы и вкладки YouTube.
+	channelRe = regexp.MustCompile(`(?i)(list=|/playlist|/channel/|/c/|/user/|/@[\w.-]+|/videos|/streams)`)
+
+	youtubeRe = regexp.MustCompile(`(?i)^https?://(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/`)
+	twitterRe = regexp.MustCompile(`(?i)^https?://(www\.|mobile\.)?(twitter|x)\.com/`)
+
+	// Профиль X: x.com/username[/media|/with_replies|/likes].
+	// Такие ссылки yt-dlp не поддерживает (экстрактора ленты нет — только
+	// отдельные твиты), поэтому мы их распознаём, чтобы дать внятную ошибку.
+	twitterProfileRe = regexp.MustCompile(
+		`(?i)^https?://(www\.|mobile\.)?(twitter|x)\.com/[A-Za-z0-9_]{1,15}(/(media|with_replies|likes))?/?(\?.*)?$`)
 )
+
+// IsTwitterProfileURL сообщает, что ссылка ведёт на профиль X, а не на твит.
+// yt-dlp такие ссылки не умеет: среди его twitter-экстракторов нет ленты
+// пользователя, есть только отдельный твит, amplify, broadcast, card и spaces.
+func IsTwitterProfileURL(rawURL string) bool {
+	rawURL = strings.TrimSpace(rawURL)
+	return IsTwitterURL(rawURL) && !singleVideoRe.MatchString(rawURL) &&
+		twitterProfileRe.MatchString(rawURL)
+}
+
+// IsYouTubeURL сообщает, ведёт ли ссылка на YouTube.
+func IsYouTubeURL(rawURL string) bool { return youtubeRe.MatchString(strings.TrimSpace(rawURL)) }
+
+// IsTwitterURL сообщает, ведёт ли ссылка на X (бывший Twitter).
+func IsTwitterURL(rawURL string) bool { return twitterRe.MatchString(strings.TrimSpace(rawURL)) }
+
+// NeedsAuthError распознаёт ошибку yt-dlp, которая лечится подстановкой
+// cookies из браузера: приватный/NSFW твит, требование логина, rate limit.
+func NeedsAuthError(msg string) bool {
+	m := strings.ToLower(msg)
+	for _, s := range []string{
+		"nsfw", "log in", "login", "sign in", "authenticat",
+		"private", "not authorized", "requires cookies", "rate limit",
+		"no video could be found", "age-restricted", "confirm your age",
+	} {
+		if strings.Contains(m, s) {
+			return true
+		}
+	}
+	return false
+}
 
 // archiveFileName — имя файла-архива yt-dlp в выбранной папке скачивания.
 const archiveFileName = ".ytdl-archive.txt"
@@ -142,6 +188,26 @@ func GetVideoInfo(ctx context.Context, url string, cookiesBrowser string) (*Vide
 	var raw ytDLPRaw
 	if err := json.Unmarshal(stdout.Bytes(), &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse yt-dlp output: %w", err)
+	}
+
+	// Твит с несколькими роликами приходит плейлистом: в корне нет formats,
+	// и список качеств получился бы пустым. Берём первое видео — именно его
+	// потом скачает StartDownload, там тоже стоит --no-playlist.
+	if len(raw.Formats) == 0 && len(raw.Entries) > 0 {
+		first := raw.Entries[0]
+		if first.Title == "" {
+			first.Title = raw.Title
+		}
+		if first.Uploader == "" {
+			first.Uploader = raw.Uploader
+		}
+		if first.Channel == "" {
+			first.Channel = raw.Channel
+		}
+		if first.Thumbnail == "" {
+			first.Thumbnail = raw.Thumbnail
+		}
+		raw = first
 	}
 
 	uploader := raw.Uploader
@@ -229,6 +295,9 @@ func buildArgs(opts DownloadOptions, outputTemplate string) []string {
 		"--concurrent-fragments", "4",
 		"--retries", "3",
 		"--fragment-retries", "3",
+		// У X заголовок — это текст твита целиком, из него получаются имена
+		// в сотни символов, которые упираются в лимит пути Windows (260).
+		"--trim-filenames", "120",
 		// Печатаем реальный путь к итоговому файлу после всех move/merge —
 		// иначе [download] Destination указывает на промежуточный fXXX-файл,
 		// который после merge перестаёт существовать.
@@ -549,9 +618,25 @@ type ytDLPEntryRaw struct {
 	Thumbnail  string  `json:"thumbnail"`
 }
 
-// IsChannelURL возвращает true если URL ведёт на канал или плейлист.
+// IsChannelURL возвращает true если URL ведёт на список видео — канал,
+// плейлист YouTube или профиль X.
+//
+// Порядок проверок от частного к общему: сначала явные одиночные видео
+// (watch?v=, youtu.be, /shorts/, твит /status/), затем явные списки.
+// Неизвестная ссылка теперь считается ОДИНОЧНЫМ видео: раньше здесь стояло
+// "всё, что не watch?v= — канал", из-за чего любая ссылка не с YouTube
+// (в том числе твит) уходила в режим плейлиста и падала.
 func IsChannelURL(rawURL string) bool {
-	return !singleVideoRe.MatchString(rawURL)
+	rawURL = strings.TrimSpace(rawURL)
+	if singleVideoRe.MatchString(rawURL) {
+		return false
+	}
+	// У X списков нет вовсе: лента профиля не поддерживается yt-dlp, а твит —
+	// это всегда одиночное видео. Режим канала для x.com не включаем никогда.
+	if IsTwitterURL(rawURL) {
+		return false
+	}
+	return channelRe.MatchString(rawURL)
 }
 
 // GetChannelVideos получает страницу видео из канала/плейлиста.
@@ -592,12 +677,16 @@ func GetChannelVideos(ctx context.Context, url string, offset, limit int, cookie
 		uploader = raw.Channel
 	}
 
+	isYT := IsYouTubeURL(url)
+
 	entries := make([]ChannelEntry, 0, len(raw.Entries))
 	for _, e := range raw.Entries {
-		// предпочитаем каноничный URL по ID — yt-dlp иногда отдаёт в url только id
+		// Для YouTube предпочитаем каноничный URL по ID — yt-dlp иногда отдаёт
+		// в url только id. Для остальных сайтов (X и т.п.) собирать ссылку
+		// из ID нельзя, там нужен готовый webpage_url/url.
 		var entryURL string
 		switch {
-		case e.ID != "":
+		case isYT && e.ID != "":
 			entryURL = "https://www.youtube.com/watch?v=" + e.ID
 		case e.WebpageURL != "":
 			entryURL = e.WebpageURL
@@ -606,7 +695,7 @@ func GetChannelVideos(ctx context.Context, url string, offset, limit int, cookie
 		}
 
 		thumb := e.Thumbnail
-		if thumb == "" && e.ID != "" {
+		if thumb == "" && isYT && e.ID != "" {
 			thumb = "https://i.ytimg.com/vi/" + e.ID + "/hqdefault.jpg"
 		}
 
