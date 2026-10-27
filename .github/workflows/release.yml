@@ -1,0 +1,183 @@
+# Установщики для Windows, macOS и Linux.
+#
+# Как выпустить версию: поднять version в Cargo.toml, закоммитить и
+# запушить тег с тем же номером — `git tag v2.1.0 && git push origin v2.1.0`.
+# Workflow соберёт установщики и создаст черновик релиза на GitHub:
+# проверьте его и нажмите «Publish release».
+#
+# Ручной запуск (Actions → Release → Run workflow) только собирает
+# установщики — они появятся в артефактах запуска, релиз не создаётся.
+#
+# Подписи нет: Windows при первом запуске покажет «Неизвестный издатель»,
+# macOS попросит разрешить запуск в «Конфиденциальность и безопасность».
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_PACKAGER_VERSION: 0.11.8
+
+jobs:
+  version:
+    name: Проверка версии
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Тег совпадает с версией в Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME, а в Cargo.toml версия $version"
+            exit 1
+          fi
+
+  windows:
+    name: Windows (NSIS)
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@${{ env.CARGO_PACKAGER_VERSION }}
+
+      - name: Тесты
+        run: cargo test --locked
+
+      - name: Сборка
+        run: cargo build --release --locked --bin lader
+
+      - name: Установщик
+        run: cargo packager --release --formats nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: target/release/*-setup.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS (.dmg, Intel + Apple Silicon)
+    needs: version
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@${{ env.CARGO_PACKAGER_VERSION }}
+
+      - name: Тесты
+        run: cargo test --locked
+
+      - name: Универсальный бинарник
+        run: |
+          cargo build --release --locked --bin lader --target aarch64-apple-darwin
+          cargo build --release --locked --bin lader --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create -output target/universal-apple-darwin/release/lader \
+            target/aarch64-apple-darwin/release/lader \
+            target/x86_64-apple-darwin/release/lader
+
+      - name: Бандл .app
+        run: cargo packager --release --target universal-apple-darwin --formats app
+
+      # Подпись cargo-packager всегда добавляет --timestamp, а для ad-hoc
+      # подписи (без аккаунта Apple Developer) это ненадёжно. Подписываем
+      # сами и сами упаковываем .dmg. Ad-hoc подпись нужна, чтобы macOS
+      # предлагала «Открыть всё равно», а не писала, что приложение повреждено.
+      - name: Ad-hoc подпись и .dmg
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          app="target/universal-apple-darwin/release/Lader.app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          mkdir -p dmg
+          cp -R "$app" dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Lader" -srcfolder dmg -ov -format UDZO \
+            "Lader_${version}_universal.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: "*.dmg"
+          if-no-files-found: error
+
+  linux:
+    name: Linux (AppImage, .deb)
+    needs: version
+    # Сборка на старой glibc — тогда AppImage запустится и на дистрибутивах постарше.
+    runs-on: ubuntu-22.04
+    env:
+      # linuxdeploy сам распространяется как AppImage; без FUSE на раннере
+      # он распаковывается и запускается так.
+      APPIMAGE_EXTRACT_AND_RUN: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@${{ env.CARGO_PACKAGER_VERSION }}
+
+      - name: Системные библиотеки
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig1-dev libxkbcommon-dev libwayland-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libfuse2 file
+
+      - name: Тесты
+        run: cargo test --locked
+
+      - name: Сборка
+        run: cargo build --release --locked --bin lader
+
+      - name: Пакеты
+        run: cargo packager --release --formats deb,appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/release/*.deb
+            target/release/*.AppImage
+          if-no-files-found: error
+
+  release:
+    name: Черновик релиза
+    needs: [windows, macos, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            ## Установка
+
+            - **Windows 10/11** — `lader_*_x64-setup.exe`. Установщик без подписи: если Windows покажет «Система Windows защитила ваш компьютер», нажмите «Подробнее» → «Выполнить в любом случае».
+            - **macOS 11+** (Intel и Apple Silicon) — `.dmg`, перетащите приложение в «Программы». При первом запуске macOS его заблокирует: откройте «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть».
+            - **Linux** — `.AppImage` (любой дистрибутив: `chmod +x` и запустить) или `.deb` для Ubuntu/Debian.
+
+            При первом запуске приложение предложит скачать компоненты — yt-dlp, Deno и ffmpeg — и дальше будет само их обновлять.
