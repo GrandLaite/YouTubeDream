@@ -1,17 +1,15 @@
 # Build artifacts
+/target
 *.exe
 *.exe~
+*.pdb
 *.dll
 *.so
 *.dylib
 
-# Linux/macOS build output (matches BINARY in Makefile)
-/ytdl
+# Linux/macOS build output (matches Makefile)
+/lader
 /embed-thumbs
-
-# Go test/coverage
-*.test
-*.out
 
 # Local editor / tooling state
 .claude/settings.local.json

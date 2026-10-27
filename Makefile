@@ -1,19 +1,23 @@
-BINARY := ytdl.exe
-BUILD_FLAGS := -ldflags="-s -w -H windowsgui"
+EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
-EMBED_BINARY := embed-thumbs.exe
-EMBED_FLAGS := -ldflags="-s -w"
+.PHONY: build run test test-net clean
 
-.PHONY: build run clean embed-thumbs
-
+# Собирает оба бинарника и кладёт их в корень проекта, как раньше.
 build:
-	go build $(BUILD_FLAGS) -o $(BINARY) .
+	cargo build --release
+	cp target/release/lader$(EXE) ./lader$(EXE)
+	cp target/release/embed-thumbs$(EXE) ./embed-thumbs$(EXE)
 
-run: build
-	./$(BINARY)
+run:
+	cargo run --release --bin lader
 
-embed-thumbs:
-	go build $(EMBED_FLAGS) -o $(EMBED_BINARY) ./tools/embed-thumbs
+test:
+	cargo test
+
+# Тесты, которые ходят в сеть: GitHub (установка yt-dlp) и превью YouTube.
+test-net:
+	cargo test -- --ignored
 
 clean:
-	rm -f $(BINARY) $(EMBED_BINARY)
+	cargo clean
+	rm -f lader$(EXE) embed-thumbs$(EXE)

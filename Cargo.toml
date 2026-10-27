@@ -1,0 +1,104 @@
+[package]
+name = "lader"
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Desktop GUI for downloading videos from YouTube and X via yt-dlp"
+homepage = "https://github.com/GrandLaite/YouTubeDream"
+publish = false
+default-run = "lader"
+
+[lib]
+name = "lader_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lader"
+path = "src/main.rs"
+
+[[bin]]
+name = "embed-thumbs"
+path = "src/bin/embed-thumbs.rs"
+
+[dependencies]
+slint = { version = "1.18", features = ["raw-window-handle-06"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+sha2 = "0.11"
+dirs = "7"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# TLS: на Windows и macOS — системный стек, на Linux — rustls с вшитыми
+# корневыми сертификатами (AppImage не зависит от версии OpenSSL).
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+ureq = { version = "3.4", default-features = false, features = ["native-tls"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+
+# На Windows диалог выбора папки — нативный IFileDialog, xdg-portal/wayland не нужны.
+[target.'cfg(windows)'.dependencies]
+rfd = { version = "0.17", default-features = false }
+
+[target.'cfg(not(windows))'.dependencies]
+rfd = "0.17"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+slint-build = "1.18"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "unwind"
+
+# ─── Установщики (cargo-packager) ────────────────────────────────────────────
+# Собираются в GitHub Actions (.github/workflows/release.yml):
+#   Windows — NSIS-установщик для текущего пользователя, без прав администратора;
+#   macOS   — .app (упаковку в .dmg и ad-hoc подпись делает workflow);
+#   Linux   — AppImage и .deb.
+# Компоненты (yt-dlp, Deno, ffmpeg) в установщики не входят: приложение
+# скачивает их само при первом запуске. Ключи — в camelCase: неизвестные
+# поля cargo-packager считает ошибкой.
+
+[package.metadata.packager]
+productName = "Lader"
+identifier = "io.github.grandlaite.lader"
+publisher = "GrandLaite"
+category = "Video"
+copyright = "GrandLaite"
+binaries = [{ path = "lader", main = true }]
+icons = [
+    "packaging/icons/16x16.png",
+    "packaging/icons/32x32.png",
+    "packaging/icons/128x128.png",
+    "packaging/icons/128x128@2x.png",
+    "packaging/icons/256x256.png",
+    "packaging/icons/256x256@2x.png",
+    "packaging/icons/512x512.png",
+    "packaging/icons/512x512@2x.png",
+]
+
+[package.metadata.packager.nsis]
+installerIcon = "packaging/icons/icon.ico"
+languages = ["Russian", "English"]
+customLanguageFiles = { Russian = "packaging/nsis/Russian.nsh" }
+# Деинсталлятор предложит (галочкой, выключенной по умолчанию) удалить
+# настройки и скачанные компоненты.
+appdataPaths = ["$LOCALAPPDATA/Lader", "$APPDATA/Lader"]
+
+[package.metadata.packager.macos]
+minimumSystemVersion = "11.0"
+
+[package.metadata.packager.deb]
+section = "video"
+depends = ["libfontconfig1", "libxkbcommon0", "libgl1"]

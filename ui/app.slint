@@ -1,0 +1,1192 @@
+// Интерфейс Lader. Всё состояние — в глобальном AppState: Rust
+// выставляет свойства и обрабатывает колбэки, компоненты только отображают.
+
+import { Button, LineEdit, ComboBox, ProgressIndicator, ListView, ScrollView, Palette, Spinner } from "std-widgets.slint";
+
+export enum Screen { empty, loading, video, channel, progress, components }
+
+export enum Tone { neutral, info, success, warning, danger }
+
+export enum JobState { running, cancelling, done, failed, cancelled }
+
+export enum DialogIcon { info, error, question }
+
+export struct ChannelRow {
+    checked: bool,
+    number: int,
+    title: string,
+    duration: string,
+    thumb: image,
+}
+
+export struct ComponentRow {
+    title: string,
+    purpose: string,
+    status: string,
+    tone: Tone,
+    action: string,
+    busy: bool,
+    progress: float,
+    progress-known: bool,
+}
+
+global Theme {
+    out property <color> window: #1b1b1d;
+    out property <color> card: #242427;
+    out property <color> card-border: #ffffff14;
+    out property <color> hover: #ffffff0d;
+    out property <color> placeholder: #ffffff0f;
+    out property <color> text: #f3f3f4;
+    out property <color> muted: #a3a3ad;
+    out property <color> success: #6ccb5f;
+    out property <color> warning: #fcb544;
+    out property <color> danger: #ff7070;
+    out property <color> info: #60cdff;
+
+    public pure function tone(t: Tone) -> color {
+        if t == Tone.success { return root.success; }
+        if t == Tone.warning { return root.warning; }
+        if t == Tone.danger { return root.danger; }
+        if t == Tone.info { return root.info; }
+        return root.muted;
+    }
+}
+
+export global AppState {
+    // ── Шапка и баннер (тексты считает Rust) ────────────
+    in property <string> pill-text: "Проверяется актуальность компонентов…";
+    in property <Tone> pill-tone;
+    in property <bool> banner-visible;
+    in property <Tone> banner-tone;
+    in property <string> banner-title;
+    in property <string> banner-text;
+    in property <string> banner-button;
+    in property <bool> banner-dismissable;
+    in property <bool> banner-progress-visible;
+    in property <bool> banner-progress-known;
+    in property <float> banner-progress;
+    callback banner-action();
+    callback banner-dismiss();
+
+    // ── Компоненты (yt-dlp, Deno, ffmpeg) ───────────────
+    in property <[ComponentRow]> component-rows;
+    in property <bool> components-setup;
+    in property <bool> installing;
+    in property <bool> retry-pending;
+    in property <string> missing-size;
+    in property <string> components-folder;
+    callback open-components();
+    callback close-components();
+    callback check-updates();
+    callback install-missing();
+    callback install-component(int);
+    callback cancel-install();
+    callback open-components-folder();
+
+    // ── Источник ────────────────────────────────────────
+    in-out property <string> url;
+    in property <[string]> cookie-options;
+    in-out property <int> cookies-index;
+    in-out property <string> root-dir;
+    callback fetch();
+    callback cookies-changed(int);
+    in property <[string]> connection-options;
+    in-out property <int> connections-index;
+    callback connections-changed(int);
+    callback root-dir-edited(string);
+    callback browse();
+
+    // ── Состояние ───────────────────────────────────────
+    in property <Screen> screen: Screen.empty;
+    in property <string> loading-text;
+    in property <bool> fetching;
+    in property <bool> job-running;
+    out property <bool> can-fetch: !fetching && !job-running && !installing;
+    out property <bool> can-download: !job-running && !installing;
+
+    // ── Одно видео ──────────────────────────────────────
+    in property <string> video-title;
+    in property <string> video-uploader;
+    in property <string> video-duration;
+    in property <image> video-thumb;
+    in property <[string]> quality-options;
+    in-out property <int> quality-index;
+    in-out property <int> format-index;
+    in-out property <string> single-dir;
+    out property <bool> audio-only: quality-options.length > 0 && quality-index == quality-options.length - 1;
+    out property <[string]> format-options: audio-only ? ["MP3", "M4A"] : ["MP4", "WebM", "MKV"];
+    out property <string> format-hint: hint-for(format-options[format-index]);
+    callback quality-selected(int);
+    callback download();
+
+    // ── Канал / плейлист ────────────────────────────────
+    in property <string> channel-title;
+    in property <[ChannelRow]> channel-rows;
+    in property <int> selected-count;
+    in property <bool> can-load-more;
+    in property <bool> loading-more;
+    in-out property <int> batch-quality-index;
+    in-out property <int> batch-format-index;
+    in-out property <string> batch-dir;
+    out property <[string]> batch-quality-options: ["Лучшее", "1080p", "720p", "480p", "360p", "Только аудио"];
+    out property <bool> batch-audio-only: batch-quality-index == batch-quality-options.length - 1;
+    out property <[string]> batch-format-options: batch-audio-only ? ["MP3", "M4A"] : ["MP4", "WebM", "MKV"];
+    callback batch-quality-selected(int);
+    callback toggle-row(int);
+    callback select-all(bool);
+    callback load-more();
+    callback download-batch();
+
+    // ── Загрузка ────────────────────────────────────────
+    in property <JobState> job-state;
+    in property <string> job-heading;
+    in property <string> job-subtitle;
+    in property <float> job-progress;
+    in property <bool> job-progress-known: true;
+    in property <string> job-percent;
+    in property <string> job-status;
+    in property <string> job-size;
+    in property <string> job-speed;
+    in property <string> job-eta;
+    in property <bool> can-open-folder;
+    callback cancel();
+    callback open-folder();
+    callback new-download();
+
+    // ── Диалог ──────────────────────────────────────────
+    in property <bool> dialog-open;
+    in property <DialogIcon> dialog-icon;
+    in property <string> dialog-title;
+    in property <string> dialog-text;
+    in property <string> dialog-primary;
+    in property <string> dialog-cancel;
+    callback dialog-action(bool);
+
+    pure function hint-for(format: string) -> string {
+        if format == "MP4" { return "H.264 + AAC без перекодирования — открывается везде."; }
+        if format == "WebM" { return "VP9/AV1 + Opus — родные кодеки YouTube, склейка без потерь."; }
+        if format == "MKV" { return "Лучшее качество: любые кодеки без перекодирования."; }
+        if format == "MP3" { return "Аудио конвертируется в MP3 (небольшая потеря качества)."; }
+        if format == "M4A" { return "Родной AAC YouTube и X — без перекодирования, лучшее качество аудио."; }
+        return "";
+    }
+}
+
+// ─── Базовые элементы ────────────────────────────────────────────────────────
+
+component Card inherits Rectangle {
+    in property <length> inset: 16px;
+    in property <length> gap: 12px;
+    background: Theme.card;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    VerticalLayout {
+        padding: root.inset;
+        spacing: root.gap;
+        @children
+    }
+}
+
+component Caption inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    vertical-alignment: center;
+}
+
+component Icon inherits Image {
+    in property <length> size: 18px;
+    width: self.size;
+    height: self.size;
+    colorize: Theme.text;
+}
+
+component Field {
+    in property <string> label;
+    VerticalLayout {
+        spacing: 6px;
+        Caption { text: root.label; }
+        @children
+    }
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    callback clicked;
+    accessible-role: button;
+    accessible-label: "Закрыть";
+    accessible-action-default => { root.clicked(); }
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.hover : transparent;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        source: root.icon;
+        size: 14px;
+        colorize: Theme.muted;
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component Check inherits Rectangle {
+    in property <bool> checked;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border-width: root.checked ? 0 : 1.5px;
+    border-color: Theme.muted;
+    background: root.checked ? Palette.accent-background : transparent;
+
+    if root.checked: Image {
+        source: @image-url("icons/tick.svg");
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        colorize: Palette.accent-foreground;
+    }
+}
+
+// ─── Шапка и баннеры ────────────────────────────────────────────────────────
+
+component ToolPill inherits Rectangle {
+    callback clicked;
+    // Кнопка для экранного диктора и UI Automation, а не просто текст.
+    accessible-role: button;
+    accessible-label: AppState.pill-text;
+    accessible-action-default => { root.clicked(); }
+    height: 30px;
+    horizontal-stretch: 0;
+    border-radius: 15px;
+    background: ta.has-hover ? #ffffff14 : #ffffff0a;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 14px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.tone(AppState.pill-tone);
+            }
+        }
+        Text {
+            text: AppState.pill-text;
+            color: Theme.muted;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Нижняя строка окна: справа — статус компонентов.
+component StatusBar {
+    HorizontalLayout {
+        Rectangle { horizontal-stretch: 1; }
+        VerticalLayout {
+            alignment: center;
+            ToolPill {
+                clicked => { AppState.open-components(); }
+            }
+        }
+    }
+}
+
+component Banner inherits Rectangle {
+    in property <color> tone;
+    in property <image> icon;
+    border-radius: 10px;
+    background: root.tone.with-alpha(0.10);
+    border-width: 1px;
+    border-color: root.tone.with-alpha(0.35);
+
+    HorizontalLayout {
+        padding: 14px;
+        padding-left: 16px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 1px;
+            Icon {
+                source: root.icon;
+                size: 20px;
+                colorize: root.tone;
+            }
+        }
+        @children
+    }
+}
+
+component StatusBanner {
+    property <Tone> tone: AppState.banner-tone;
+
+    Banner {
+        tone: Theme.tone(root.tone);
+        icon: root.tone == Tone.success ? @image-url("icons/check.svg")
+            : root.tone == Tone.warning || root.tone == Tone.danger ? @image-url("icons/alert.svg")
+            : @image-url("icons/refresh.svg");
+
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+            alignment: center;
+
+            Text {
+                text: AppState.banner-title;
+                color: Theme.text;
+                font-weight: 600;
+                wrap: word-wrap;
+            }
+            Text {
+                text: AppState.banner-text;
+                color: Theme.muted;
+                font-size: 13px;
+                wrap: word-wrap;
+                overflow: elide;
+                max-height: 54px;
+            }
+            if AppState.banner-progress-visible: VerticalLayout {
+                padding-top: 6px;
+                ProgressIndicator {
+                    progress: AppState.banner-progress;
+                    indeterminate: !AppState.banner-progress-known;
+                }
+            }
+        }
+
+        if AppState.banner-button != "": VerticalLayout {
+            alignment: center;
+            Button {
+                text: AppState.banner-button;
+                primary: !AppState.installing;
+                // «Отмена» во время установки доступна всегда, остальное — когда ничего не идёт.
+                enabled: AppState.installing || AppState.can-fetch;
+                clicked => { AppState.banner-action(); }
+            }
+        }
+
+        if AppState.banner-dismissable: VerticalLayout {
+            alignment: start;
+            IconButton {
+                icon: @image-url("icons/close.svg");
+                clicked => { AppState.banner-dismiss(); }
+            }
+        }
+    }
+}
+
+// ─── Ввод ссылки ────────────────────────────────────────────────────────────
+
+component SourceCard inherits Card {
+    forward-focus: url-edit;
+
+    HorizontalLayout {
+        spacing: 8px;
+        url-edit := LineEdit {
+            text <=> AppState.url;
+            accepted => { AppState.fetch(); }
+        }
+        Button {
+            text: "Получить";
+            primary: true;
+            enabled: AppState.can-fetch;
+            clicked => { AppState.fetch(); }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 16px;
+        HorizontalLayout {
+            spacing: 8px;
+            horizontal-stretch: 0;
+            Caption { text: "Cookies из браузера"; }
+            ComboBox {
+                width: 150px;
+                model: AppState.cookie-options;
+                current-index <=> AppState.cookies-index;
+                selected => { AppState.cookies-changed(self.current-index); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            horizontal-stretch: 0;
+            Caption { text: "Потоков"; }
+            ComboBox {
+                width: 72px;
+                model: AppState.connection-options;
+                current-index <=> AppState.connections-index;
+                selected => { AppState.connections-changed(self.current-index); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            horizontal-stretch: 1;
+            Caption { text: "Целевая папка"; }
+            LineEdit {
+                placeholder-text: "Папка загрузок";
+                text <=> AppState.root-dir;
+                edited(text) => { AppState.root-dir-edited(text); }
+            }
+            Button {
+                icon: @image-url("icons/folder.svg");
+                colorize-icon: true;
+                text: "Обзор…";
+                clicked => { AppState.browse(); }
+            }
+        }
+    }
+}
+
+// ─── Экраны ─────────────────────────────────────────────────────────────────
+
+component EmptyView {
+    VerticalLayout {
+        alignment: center;
+        spacing: 10px;
+        Text {
+            text: "Вставьте ссылку и нажмите «Получить»";
+            color: Theme.text;
+            font-size: 16px;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "Видео и Shorts YouTube, плейлисты и каналы целиком, твиты X с видео";
+            color: Theme.muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}
+
+component LoadingView {
+    VerticalLayout {
+        alignment: center;
+        spacing: 14px;
+        HorizontalLayout {
+            alignment: center;
+            Spinner {
+                indeterminate: true;
+                width: 36px;
+                height: 36px;
+            }
+        }
+        Text {
+            text: AppState.loading-text;
+            color: Theme.muted;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+component Thumb inherits Rectangle {
+    in property <image> source;
+    background: Theme.placeholder;
+    border-radius: 6px;
+    clip: true;
+    Image {
+        source: root.source;
+        width: parent.width;
+        height: parent.height;
+        image-fit: cover;
+    }
+}
+
+component VideoView {
+    VerticalLayout {
+        alignment: start;
+        spacing: 14px;
+
+        Card {
+            HorizontalLayout {
+                spacing: 16px;
+                Thumb {
+                    source: AppState.video-thumb;
+                    width: 192px;
+                    height: 108px;
+                    border-radius: 8px;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Text {
+                        text: AppState.video-title;
+                        color: Theme.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                        overflow: elide;
+                        max-height: 66px;
+                    }
+                    if AppState.video-uploader != "": HorizontalLayout {
+                        spacing: 6px;
+                        Icon {
+                            source: @image-url("icons/user.svg");
+                            size: 14px;
+                            colorize: Theme.muted;
+                        }
+                        Text {
+                            text: AppState.video-uploader;
+                            color: Theme.muted;
+                            overflow: elide;
+                        }
+                    }
+                    if AppState.video-duration != "": HorizontalLayout {
+                        spacing: 6px;
+                        Icon {
+                            source: @image-url("icons/clock.svg");
+                            size: 14px;
+                            colorize: Theme.muted;
+                        }
+                        Text {
+                            text: AppState.video-duration;
+                            color: Theme.muted;
+                        }
+                    }
+                }
+            }
+        }
+
+        Card {
+            HorizontalLayout {
+                spacing: 12px;
+                Field {
+                    label: "Качество";
+                    horizontal-stretch: 1;
+                    ComboBox {
+                        model: AppState.quality-options;
+                        current-index <=> AppState.quality-index;
+                        selected => { AppState.quality-selected(self.current-index); }
+                    }
+                }
+                Field {
+                    label: "Формат";
+                    horizontal-stretch: 1;
+                    ComboBox {
+                        model: AppState.format-options;
+                        current-index <=> AppState.format-index;
+                    }
+                }
+            }
+            Text {
+                text: AppState.format-hint;
+                color: Theme.muted;
+                font-size: 13px;
+                font-italic: true;
+                wrap: word-wrap;
+            }
+            Field {
+                label: "Папка сохранения";
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        placeholder-text: "Папка загрузок";
+                        text <=> AppState.single-dir;
+                    }
+                    Button {
+                        icon: @image-url("icons/folder.svg");
+                        colorize-icon: true;
+                        text: "Обзор…";
+                        clicked => { AppState.browse(); }
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    icon: @image-url("icons/download.svg");
+                    colorize-icon: true;
+                    text: "Скачать";
+                    primary: true;
+                    enabled: AppState.can-download;
+                    clicked => { AppState.download(); }
+                }
+            }
+        }
+    }
+}
+
+component ChannelRowItem inherits Rectangle {
+    in property <ChannelRow> item;
+    callback clicked;
+    accessible-role: checkbox;
+    accessible-label: root.item.title;
+    accessible-checked: root.item.checked;
+    accessible-checkable: true;
+    accessible-action-default => { root.clicked(); }
+    height: 64px;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.hover : transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            Check { checked: root.item.checked; }
+        }
+        Text {
+            text: root.item.number + ".";
+            width: 34px;
+            color: Theme.muted;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Thumb {
+            source: root.item.thumb;
+            width: 92px;
+        }
+        Text {
+            text: root.item.title;
+            color: root.item.checked ? Theme.text : Theme.muted;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            wrap: word-wrap;
+            overflow: elide;
+        }
+        Text {
+            text: root.item.duration;
+            color: Theme.muted;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ChannelView {
+    VerticalLayout {
+        spacing: 14px;
+
+        Card {
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: AppState.channel-title;
+                        color: Theme.text;
+                        font-size: 16px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Caption {
+                        text: "Выбрано " + AppState.selected-count + " из " + AppState.channel-rows.length;
+                    }
+                }
+                Button {
+                    text: "Выбрать все";
+                    clicked => { AppState.select-all(true); }
+                }
+                Button {
+                    text: "Снять все";
+                    clicked => { AppState.select-all(false); }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.card-border;
+            }
+            ListView {
+                vertical-stretch: 1;
+                min-height: 160px;
+                for entry[i] in AppState.channel-rows: ChannelRowItem {
+                    item: entry;
+                    clicked => { AppState.toggle-row(i); }
+                }
+            }
+            if AppState.can-load-more: HorizontalLayout {
+                alignment: center;
+                Button {
+                    text: AppState.loading-more ? "Загрузка…" : "Загрузить ещё 30";
+                    enabled: !AppState.loading-more;
+                    clicked => { AppState.load-more(); }
+                }
+            }
+        }
+
+        Card {
+            HorizontalLayout {
+                spacing: 12px;
+                Field {
+                    label: "Качество";
+                    ComboBox {
+                        width: 150px;
+                        model: AppState.batch-quality-options;
+                        current-index <=> AppState.batch-quality-index;
+                        selected => { AppState.batch-quality-selected(self.current-index); }
+                    }
+                }
+                Field {
+                    label: "Формат";
+                    ComboBox {
+                        width: 110px;
+                        model: AppState.batch-format-options;
+                        current-index <=> AppState.batch-format-index;
+                    }
+                }
+                Field {
+                    label: "Папка сохранения";
+                    horizontal-stretch: 1;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        LineEdit {
+                            placeholder-text: "Папка загрузок";
+                            text <=> AppState.batch-dir;
+                        }
+                        Button {
+                            icon: @image-url("icons/folder.svg");
+                            colorize-icon: true;
+                            text: "Обзор…";
+                            clicked => { AppState.browse(); }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                Button {
+                    icon: @image-url("icons/download.svg");
+                    colorize-icon: true;
+                    text: "Скачать выбранные (" + AppState.selected-count + ")";
+                    primary: true;
+                    enabled: AppState.can-download && AppState.selected-count > 0;
+                    clicked => { AppState.download-batch(); }
+                }
+            }
+        }
+    }
+}
+
+component Stat {
+    in property <string> label;
+    in property <string> value;
+    horizontal-stretch: 1;
+    VerticalLayout {
+        spacing: 2px;
+        Caption { text: root.label; }
+        Text {
+            text: root.value == "" ? "—" : root.value;
+            color: Theme.text;
+        }
+    }
+}
+
+component ProgressView {
+    property <JobState> job: AppState.job-state;
+    property <bool> active: root.job == JobState.running || root.job == JobState.cancelling;
+    property <color> tone: root.job == JobState.done ? Theme.success
+        : root.job == JobState.failed ? Theme.danger
+        : root.job == JobState.cancelled ? Theme.muted
+        : Theme.text;
+
+    VerticalLayout {
+        alignment: start;
+        Card {
+            gap: 14px;
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    if root.active: Spinner {
+                        indeterminate: true;
+                        width: 30px;
+                        height: 30px;
+                    }
+                    if !root.active: Icon {
+                        size: 28px;
+                        colorize: root.tone;
+                        source: root.job == JobState.done ? @image-url("icons/check.svg")
+                            : root.job == JobState.failed ? @image-url("icons/alert.svg")
+                            : @image-url("icons/close.svg");
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: AppState.job-heading;
+                        color: root.tone;
+                        font-size: 17px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    if AppState.job-subtitle != "": Text {
+                        text: AppState.job-subtitle;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    ProgressIndicator {
+                        progress: AppState.job-progress;
+                        indeterminate: !AppState.job-progress-known && root.active;
+                    }
+                }
+                Text {
+                    text: AppState.job-percent;
+                    width: 64px;
+                    color: Theme.text;
+                    font-weight: 600;
+                    horizontal-alignment: right;
+                }
+            }
+
+            Text {
+                text: AppState.job-status;
+                color: Theme.muted;
+                overflow: elide;
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                Stat {
+                    label: "Размер";
+                    value: AppState.job-size;
+                }
+                Stat {
+                    label: "Скорость";
+                    value: AppState.job-speed;
+                }
+                Stat {
+                    label: "Осталось";
+                    value: AppState.job-eta;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                if root.active: Button {
+                    text: root.job == JobState.cancelling ? "Отмена…" : "Отмена";
+                    enabled: root.job == JobState.running;
+                    clicked => { AppState.cancel(); }
+                }
+                if !root.active && AppState.can-open-folder: Button {
+                    icon: @image-url("icons/folder.svg");
+                    colorize-icon: true;
+                    text: "Открыть папку";
+                    clicked => { AppState.open-folder(); }
+                }
+                if !root.active: Button {
+                    text: "Скачать ещё";
+                    primary: true;
+                    clicked => { AppState.new-download(); }
+                }
+            }
+        }
+    }
+}
+
+component ComponentRowItem inherits Rectangle {
+    in property <ComponentRow> item;
+    callback action();
+    border-radius: 8px;
+    background: #ffffff06;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    HorizontalLayout {
+        padding: 14px;
+        spacing: 14px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 5px;
+            Rectangle {
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                background: Theme.tone(root.item.tone);
+            }
+        }
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.item.title;
+                    color: Theme.text;
+                    font-weight: 600;
+                    horizontal-stretch: 0;
+                }
+                Text {
+                    text: "— " + root.item.purpose;
+                    color: Theme.muted;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+            Text {
+                text: root.item.status;
+                color: root.item.tone == Tone.danger ? Theme.danger : Theme.muted;
+                font-size: 13px;
+                wrap: word-wrap;
+                overflow: elide;
+                max-height: 36px;
+            }
+            if root.item.busy: VerticalLayout {
+                padding-top: 4px;
+                ProgressIndicator {
+                    progress: root.item.progress;
+                    indeterminate: !root.item.progress-known;
+                }
+            }
+        }
+        if root.item.action != "": VerticalLayout {
+            alignment: center;
+            Button {
+                text: root.item.action;
+                enabled: AppState.can-fetch;
+                clicked => { root.action(); }
+            }
+        }
+    }
+}
+
+component ComponentsView {
+    VerticalLayout {
+        alignment: start;
+        Card {
+            gap: 14px;
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: AppState.components-setup ? "Подготовка к работе" : "Компоненты";
+                    color: Theme.text;
+                    font-size: 18px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: AppState.components-setup
+                        ? "Приложению нужны три программы. Они скачаются с официальных страниц проектов, пройдут проверку контрольной суммы и будут лежать в папке приложения — в системе ничего не меняется."
+                            + (AppState.retry-pending ? " После установки ваш запрос продолжится автоматически." : "")
+                        : "Программы, через которые работает приложение. yt-dlp проверяется на обновления при запуске и раз в сутки.";
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+
+            for row[i] in AppState.component-rows: ComponentRowItem {
+                item: row;
+                action => { AppState.install-component(i); }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Папка: " + AppState.components-folder;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    icon: @image-url("icons/folder.svg");
+                    colorize-icon: true;
+                    text: "Открыть";
+                    clicked => { AppState.open-components-folder(); }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                if AppState.installing: Button {
+                    text: "Отмена";
+                    clicked => { AppState.cancel-install(); }
+                }
+                if !AppState.installing && !AppState.components-setup: Button {
+                    icon: @image-url("icons/refresh.svg");
+                    colorize-icon: true;
+                    text: "Проверить обновления";
+                    enabled: AppState.can-fetch;
+                    clicked => { AppState.check-updates(); }
+                }
+                if !AppState.installing: Button {
+                    text: AppState.components-setup ? "Позже" : "Готово";
+                    primary: !AppState.components-setup;
+                    clicked => { AppState.close-components(); }
+                }
+                if !AppState.installing && AppState.components-setup: Button {
+                    icon: @image-url("icons/download.svg");
+                    colorize-icon: true;
+                    text: "Установить всё (" + AppState.missing-size + ")";
+                    primary: true;
+                    enabled: AppState.can-fetch;
+                    clicked => { AppState.install-missing(); }
+                }
+            }
+        }
+    }
+}
+
+// ─── Диалог ─────────────────────────────────────────────────────────────────
+
+component DialogOverlay inherits Rectangle {
+    background: #000000a0;
+
+    TouchArea {
+        // Перехватываем клики и прокрутку, чтобы не трогать то, что под диалогом.
+        scroll-event(e) => { return accept; }
+    }
+
+    // Окно диалога — внутри FocusScope: Esc/Enter, нажатые на кнопке
+    // диалога, всплывают сюда.
+    FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                AppState.dialog-action(false);
+                return accept;
+            }
+            if event.text == Key.Return && AppState.dialog-primary != "" {
+                AppState.dialog-action(true);
+                return accept;
+            }
+            return reject;
+        }
+
+        box := Rectangle {
+            width: min(560px, root.width - 48px);
+            height: layout.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: #2b2b2f;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.card-border;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000090;
+
+            layout := VerticalLayout {
+                padding: 22px;
+                spacing: 14px;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    Icon {
+                        size: 22px;
+                        source: AppState.dialog-icon == DialogIcon.error ? @image-url("icons/alert.svg")
+                            : AppState.dialog-icon == DialogIcon.question ? @image-url("icons/folder.svg")
+                            : @image-url("icons/check.svg");
+                        colorize: AppState.dialog-icon == DialogIcon.error ? Theme.danger : Palette.accent-background;
+                    }
+                    Text {
+                        text: AppState.dialog-title;
+                        color: Theme.text;
+                        font-size: 17px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                }
+
+                scroll := ScrollView {
+                    height: min(message.preferred-height, 340px);
+                    content-height: message.preferred-height;
+                    message := TextInput {
+                        width: scroll.visible-width - 12px;
+                        text: AppState.dialog-text;
+                        read-only: true;
+                        single-line: false;
+                        wrap: word-wrap;
+                        color: Theme.text;
+                        font-size: 14px;
+                        selection-background-color: Palette.selection-background;
+                        selection-foreground-color: Palette.selection-foreground;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    if AppState.dialog-cancel != "": Button {
+                        text: AppState.dialog-cancel;
+                        clicked => { AppState.dialog-action(false); }
+                    }
+                    if AppState.dialog-primary != "": Button {
+                        text: AppState.dialog-primary;
+                        primary: true;
+                        clicked => { AppState.dialog-action(true); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Окно ───────────────────────────────────────────────────────────────────
+
+export component AppWindow inherits Window {
+    title: "Lader";
+    icon: @image-url("icons/app.png");
+    preferred-width: 960px;
+    preferred-height: 740px;
+    min-width: 780px;
+    min-height: 620px;
+    background: Theme.window;
+    default-font-family: "Segoe UI";
+    default-font-size: 14px;
+    forward-focus: source;
+
+    VerticalLayout {
+        padding: 20px;
+        padding-bottom: 14px;
+        spacing: 14px;
+
+        source := SourceCard { }
+        if AppState.banner-visible: StatusBanner { }
+
+        if AppState.screen == Screen.empty: EmptyView { vertical-stretch: 1; }
+        if AppState.screen == Screen.loading: LoadingView { vertical-stretch: 1; }
+        if AppState.screen == Screen.video: VideoView { vertical-stretch: 1; }
+        if AppState.screen == Screen.channel: ChannelView { vertical-stretch: 1; }
+        if AppState.screen == Screen.progress: ProgressView { vertical-stretch: 1; }
+        if AppState.screen == Screen.components: ComponentsView { vertical-stretch: 1; }
+
+        StatusBar { }
+    }
+
+    if AppState.dialog-open: DialogOverlay {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+}
