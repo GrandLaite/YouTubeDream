@@ -2556,6 +2556,7 @@ dependencies = [
  "dirs",
  "image",
  "libc",
+ "raw-window-handle",
  "regex",
  "rfd",
  "serde",

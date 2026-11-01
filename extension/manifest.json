@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Lader",
+  "short_name": "Lader",
+  "version": "2.0.0",
+  "description": "Скачивание видео, плейлистов и каналов YouTube и видео из X через yt-dlp. Работает вместе с помощником lader-host.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm6QT8/0erySHg6fNWkfinyxr8Tldw+XxAfpZa4BCGYAttelSJAUTVDglxzhNFNxA9lVf6LzvE7aFRuWyBxy89pSRLattqXl+vahZobwj0/iOECT33NKywJvID2PS+OKsUVKIIViWss938wNAQJ0dbSOs4RbcF4x1vdvcwa/leVWrh1TwX7gHga/0XOTAG6YDhL4MHrGmpcxjS6jmI3XCvveS5JXo3Nt3SCbSw+UIWQIOx8FHPBRcsfoUGczRMdasBh83kHOOn4eOMsUh32gATFDMgKy+P8FVN3ivct3nTickb1khptZU76WzpimPNztlKulHjrEirqH4ZLAOeD0UEwIDAQAB",
+  "update_url": "https://grandlaite.github.io/YouTubeDream/updates.xml",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "64": "icons/64.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "Lader",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "sidePanel",
+    "storage",
+    "contextMenus",
+    "cookies"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://youtu.be/*",
+    "*://*.x.com/*",
+    "*://*.twitter.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/*", "*://m.youtube.com/*"],
+      "js": ["content/common.js", "content/youtube.js"],
+      "css": ["content/button.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://x.com/*", "*://*.x.com/*", "*://twitter.com/*", "*://*.twitter.com/*"],
+      "js": ["content/common.js", "content/x.js"],
+      "css": ["content/button.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

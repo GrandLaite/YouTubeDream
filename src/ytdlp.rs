@@ -106,10 +106,10 @@ struct RawFormat {
 }
 
 /// Получает информацию о видео через `yt-dlp -J`.
-pub fn get_video_info(tools: &Tools, url: &str, cookies_browser: &str) -> Result<VideoInfo, String> {
+pub fn get_video_info(tools: &Tools, url: &str, cookies: &Cookies) -> Result<VideoInfo, String> {
     let mut cmd = tools.ytdlp_command();
     cmd.args(["--no-playlist", "--no-warnings", "-J"]);
-    add_cookies(&mut cmd, cookies_browser);
+    cmd.args(cookies.args());
     cmd.args(["--", url]);
     let stdout = run_ytdlp(cmd, INFO_TIMEOUT)?;
     parse_video_info(&stdout)
@@ -222,12 +222,12 @@ pub fn get_channel_videos(
     url: &str,
     offset: usize,
     limit: usize,
-    cookies_browser: &str,
+    cookies: &Cookies,
 ) -> Result<ChannelInfo, String> {
     let items = format!("{}:{}", offset + 1, offset + limit);
     let mut cmd = tools.ytdlp_command();
     cmd.args(["--flat-playlist", "--no-warnings", "-I", &items, "-J"]);
-    add_cookies(&mut cmd, cookies_browser);
+    cmd.args(cookies.args());
     cmd.args(["--", url]);
     let stdout = run_ytdlp(cmd, PLAYLIST_TIMEOUT)?;
     parse_channel(&stdout, urls::is_youtube_url(url))
@@ -313,12 +313,43 @@ pub enum Target {
     Audio(AudioFormat),
 }
 
+/// Откуда yt-dlp берёт cookies.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Cookies {
+    #[default]
+    None,
+    /// `--cookies-from-browser`: yt-dlp сам читает базу cookies браузера.
+    Browser(String),
+    /// `--cookies`: файл в формате Netscape. Его пишет помощник
+    /// браузерного расширения из cookies, которые отдал сам браузер.
+    File(PathBuf),
+}
+
+impl Cookies {
+    /// Значение из настроек (`--cookies-from-browser`); пустое — без cookies.
+    pub fn from_browser(browser: &str) -> Self {
+        if browser.is_empty() { Cookies::None } else { Cookies::Browser(browser.to_string()) }
+    }
+
+    pub fn is_none(&self) -> bool {
+        *self == Cookies::None
+    }
+
+    fn args(&self) -> Vec<String> {
+        match self {
+            Cookies::None => Vec::new(),
+            Cookies::Browser(browser) => vec!["--cookies-from-browser".into(), browser.clone()],
+            Cookies::File(path) => vec!["--cookies".into(), path.to_string_lossy().into_owned()],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
     pub url: String,
     pub target: Target,
     pub out_dir: PathBuf,
-    pub cookies_browser: String,
+    pub cookies: Cookies,
     /// Сколько соединений на файл: 1 — обычная загрузка средствами yt-dlp,
     /// больше — многопоточная загрузка приложения (см. `fetch`).
     pub connections: usize,
@@ -448,10 +479,7 @@ fn args(opts: &DownloadOptions, mode: Mode) -> Vec<String> {
     args.push("--download-archive".into());
     args.push(out.join(ARCHIVE_FILE).to_string_lossy().into_owned());
 
-    if !opts.cookies_browser.is_empty() {
-        args.push("--cookies-from-browser".into());
-        args.push(opts.cookies_browser.clone());
-    }
+    args.extend(opts.cookies.args());
 
     match opts.target {
         Target::Audio(fmt) => {
@@ -977,12 +1005,6 @@ pub fn download_batch(
 
 // ─── Вспомогательное ─────────────────────────────────────────────────────────
 
-fn add_cookies(cmd: &mut Command, browser: &str) {
-    if !browser.is_empty() {
-        cmd.args(["--cookies-from-browser", browser]);
-    }
-}
-
 fn run_ytdlp(cmd: Command, timeout: Duration) -> Result<Vec<u8>, String> {
     match process::run(cmd, timeout, None) {
         Ok(out) if out.status.success() => Ok(out.stdout),
@@ -1075,7 +1097,7 @@ mod tests {
             url: "https://youtu.be/x".into(),
             target,
             out_dir: PathBuf::from("out"),
-            cookies_browser: String::new(),
+            cookies: Cookies::None,
             connections: 8,
         }
     }
@@ -1100,7 +1122,7 @@ mod tests {
                 url: "https://www.youtube.com/watch?v=dLw6aqKbpsg".into(),
                 target: Target::Video { max_height: 360, container: VideoContainer::Mp4 },
                 out_dir: dir.clone(),
-                cookies_browser: String::new(),
+                cookies: Cookies::None,
                 connections,
             };
             let started = Instant::now();
@@ -1211,12 +1233,18 @@ mod tests {
     #[test]
     fn audio_args_and_cookies() {
         let mut o = opts(Target::Audio(AudioFormat::Mp3));
-        o.cookies_browser = "firefox".into();
+        o.cookies = Cookies::from_browser("firefox");
         let args = build_args(&o);
         assert!(args.windows(2).any(|w| w == ["--audio-format", "mp3"]));
         assert!(args.windows(2).any(|w| w == ["--audio-quality", "0"]));
         assert!(args.windows(2).any(|w| w == ["--cookies-from-browser", "firefox"]));
         assert!(!args.contains(&"--merge-output-format".to_string()));
+
+        o.cookies = Cookies::File(PathBuf::from("c.txt"));
+        let args = build_args(&o);
+        assert!(args.windows(2).any(|w| w == ["--cookies", "c.txt"]));
+        assert!(!args.contains(&"--cookies-from-browser".to_string()));
+        assert!(Cookies::from_browser("").is_none());
     }
 
     #[test]

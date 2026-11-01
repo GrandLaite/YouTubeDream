@@ -1,7 +1,9 @@
 # Установщики для Windows, macOS и Linux.
 #
-# Как выпустить версию: поднять version в Cargo.toml, закоммитить и
-# запушить тег с тем же номером — `git tag v2.1.0 && git push origin v2.1.0`.
+# Как выпустить версию: поднять version в Cargo.toml и extension/manifest.json,
+# закоммитить и запушить тег с тем же номером — `git tag v2.1.0 && git push origin v2.1.0`.
+# Для внешнего расширения заранее настройте секрет LADER_EXTENSION_KEY и
+# GitHub Pages с источником GitHub Actions (см. README, «Выпуск версии»).
 # Workflow соберёт установщики и создаст черновик релиза на GitHub:
 # проверьте его и нажмите «Publish release».
 #
@@ -55,15 +57,22 @@ jobs:
         run: cargo test --locked
 
       - name: Сборка
-        run: cargo build --release --locked --bin lader
+        run: cargo build --release --locked --bin lader --bin lader-host
 
       - name: Установщик
         run: cargo packager --release --formats nsis
 
+      # Помощник браузерного расширения: один exe, ставится двойным щелчком.
+      - name: Помощник расширения
+        shell: bash
+        run: cp target/release/lader-host.exe lader-host.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: target/release/*-setup.exe
+          path: |
+            target/release/*-setup.exe
+            lader-host.exe
           if-no-files-found: error
 
   macos:
@@ -99,6 +108,15 @@ jobs:
       # подписи (без аккаунта Apple Developer) это ненадёжно. Подписываем
       # сами и сами упаковываем .dmg. Ad-hoc подпись нужна, чтобы macOS
       # предлагала «Открыть всё равно», а не писала, что приложение повреждено.
+      - name: Помощник расширения
+        run: |
+          cargo build --release --locked --bin lader-host --target aarch64-apple-darwin
+          cargo build --release --locked --bin lader-host --target x86_64-apple-darwin
+          lipo -create -output lader-host_macos \
+            target/aarch64-apple-darwin/release/lader-host \
+            target/x86_64-apple-darwin/release/lader-host
+          codesign --force --sign - lader-host_macos
+
       - name: Ad-hoc подпись и .dmg
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
@@ -114,7 +132,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: "*.dmg"
+          path: |
+            *.dmg
+            lader-host_macos
           if-no-files-found: error
 
   linux:
@@ -144,10 +164,12 @@ jobs:
         run: cargo test --locked
 
       - name: Сборка
-        run: cargo build --release --locked --bin lader
+        run: cargo build --release --locked --bin lader --bin lader-host
 
       - name: Пакеты
-        run: cargo packager --release --formats deb,appimage
+        run: |
+          cargo packager --release --formats deb,appimage
+          cp target/release/lader-host lader-host_linux_x64
 
       - uses: actions/upload-artifact@v4
         with:
@@ -155,16 +177,89 @@ jobs:
           path: |
             target/release/*.deb
             target/release/*.AppImage
+            lader-host_linux_x64
+          if-no-files-found: error
+
+  extension:
+    name: Расширение для Edge (.zip)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Архив
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          manifest=$(grep -m1 '"version"' extension/manifest.json | cut -d'"' -f4)
+          if [ "$version" != "$manifest" ]; then
+            echo "::error::В Cargo.toml версия $version, а в extension/manifest.json $manifest"
+            exit 1
+          fi
+          cd extension && zip -r "../lader-extension_${version}.zip" . -x "*.DS_Store"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: lader-extension_*.zip
+          if-no-files-found: error
+
+  extension-external:
+    name: Внешнее расширение Edge (CRX + NSIS)
+    needs: [version, windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: target/host
+
+      - name: Закрытый ключ подписи
+        shell: pwsh
+        env:
+          LADER_EXTENSION_KEY: ${{ secrets.LADER_EXTENSION_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:LADER_EXTENSION_KEY)) {
+            throw 'Добавьте PEM закрытого ключа расширения в секрет LADER_EXTENSION_KEY'
+          }
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\lader-extension.pem", $env:LADER_EXTENSION_KEY)
+
+      - name: CRX, update manifest и NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --yes --no-progress
+          node packaging/build-extension.mjs --key "$env:RUNNER_TEMP\lader-extension.pem" --host target/host/lader-host.exe --makensis makensis
+
+      - name: Удаление закрытого ключа
+        if: always()
+        shell: pwsh
+        run: Remove-Item "$env:RUNNER_TEMP\lader-extension.pem" -Force -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-external
+          path: |
+            target/extension/*.crx
+            target/extension/*-setup.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-pages
+          path: target/extension/updates.xml
           if-no-files-found: error
 
   release:
     name: Черновик релиза
-    needs: [windows, macos, linux]
+    needs: [windows, macos, linux, extension, extension-external]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: '!extension-pages'
           path: dist
           merge-multiple: true
 
@@ -181,3 +276,34 @@ jobs:
             - **Linux** — `.AppImage` (любой дистрибутив: `chmod +x` и запустить) или `.deb` для Ubuntu/Debian.
 
             При первом запуске приложение предложит скачать компоненты — yt-dlp, Deno и ffmpeg — и дальше будет само их обновлять.
+
+            ## Расширение для Microsoft Edge
+
+            1. Запустите один файл `lader-extension_*-setup.exe` от имени администратора. Он сам установит помощника и зарегистрирует внешнее расширение; Edge скачает его из этого релиза и будет обновлять автоматически. Отдельно `lader-host.exe` скачивать не нужно. Режим разработчика не нужен.
+            2. Перезапустите Edge и откройте панель Lader значком на панели инструментов или кнопкой «Скачать» на YouTube.
+
+            На macOS и Linux запустите `lader-host_macos` или `lader-host_linux_x64` из терминала.
+
+  pages:
+    name: Update manifest на GitHub Pages
+    needs: extension-external
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-pages
+          path: pages
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - id: deployment
+        uses: actions/deploy-pages@v4

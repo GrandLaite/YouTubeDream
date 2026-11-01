@@ -1,0 +1,68 @@
+/* Кнопки «Скачать» на страницах YouTube и X в стиле самих сайтов. */
+
+.lader-btn {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  flex: none;
+  font-family: "Roboto", "Arial", sans-serif;
+  white-space: nowrap;
+  user-select: none;
+}
+.lader-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lader-btn:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
+
+/* YouTube: как кнопки «Поделиться» и «Скачать» под видео. */
+.lader-yt {
+  height: 36px;
+  padding: 0 16px 0 12px;
+  margin-left: 8px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f0f0f;
+}
+.lader-yt:hover { background: rgba(0, 0, 0, 0.1); }
+html[dark] .lader-yt { background: rgba(255, 255, 255, 0.1); color: #f1f1f1; }
+html[dark] .lader-yt:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* Если привычного места нет, кнопка плавает слева внизу
+   (справа внизу у YouTube мини-плеер). */
+.lader-float {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+  height: 40px;
+  padding: 0 18px 0 14px;
+  border-radius: 20px;
+  background: #0f6cbd;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.lader-float:hover { background: #115ea3; }
+
+/* X: круглая иконка в строке действий твита. */
+.lader-x {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: rgb(113, 118, 123);
+}
+.lader-x svg { width: 19px; height: 19px; }
+.lader-x:hover { background: rgba(29, 155, 240, 0.1); color: rgb(29, 155, 240); }

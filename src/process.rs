@@ -152,6 +152,46 @@ pub fn exe_name(name: &str) -> String {
     if cfg!(windows) { format!("{name}.exe") } else { name.to_string() }
 }
 
+/// Открывает папку в файловом менеджере; если известен файл — выделяет его.
+/// Ввод и вывод отвязаны: помощник браузерного расширения общается с
+/// браузером через свои stdin/stdout, и чужой вывод сломал бы протокол.
+#[cfg(windows)]
+pub fn open_in_file_manager(dir: &std::path::Path, file: Option<&std::path::Path>) {
+    use std::os::windows::process::CommandExt;
+    // Explorer понимает только `/select,"путь"` одним аргументом, без
+    // экранирования, которое добавил бы Command::arg. Код возврата не
+    // проверяем: explorer возвращает 1 даже при успехе.
+    let mut cmd = Command::new("explorer");
+    match file {
+        Some(f) => cmd.raw_arg(format!("/select,\"{}\"", f.display())),
+        None => cmd.arg(dir),
+    };
+    let _ = quiet(&mut cmd).spawn();
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_in_file_manager(dir: &std::path::Path, file: Option<&std::path::Path>) {
+    let mut cmd = Command::new("open");
+    match file {
+        Some(f) => cmd.arg("-R").arg(f),
+        None => cmd.arg(dir),
+    };
+    let _ = quiet(&mut cmd).spawn();
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn open_in_file_manager(dir: &std::path::Path, _file: Option<&std::path::Path>) {
+    for bin in ["xdg-open", "nautilus", "dolphin", "thunar", "nemo"] {
+        if quiet(Command::new(bin).arg(dir)).spawn().is_ok() {
+            return;
+        }
+    }
+}
+
+fn quiet(cmd: &mut Command) -> &mut Command {
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+}
+
 /// Ищет исполняемый файл в PATH. На macOS дополнительно смотрит папки
 /// Homebrew: приложение, запущенное из Finder, получает урезанный PATH
 /// без /opt/homebrew/bin.

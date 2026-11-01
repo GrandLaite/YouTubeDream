@@ -6,10 +6,14 @@
 *.dll
 *.so
 *.dylib
+*.crx
+*.pem
 
 # Linux/macOS build output (matches Makefile)
 /lader
 /embed-thumbs
+/lader-host
+/lader-extension.zip
 
 # Local editor / tooling state
 .claude/settings.local.json

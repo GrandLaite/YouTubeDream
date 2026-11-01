@@ -21,9 +21,10 @@ use lader_core::cancel::CancelToken;
 use lader_core::components::{self, Component, Installed, Stage};
 use lader_core::settings::{self, CONNECTION_CHOICES, COOKIE_BROWSERS, Settings};
 use lader_core::ytdlp::{
-    self, AudioFormat, BatchEvent, BatchSummary, ChannelEntry, ChannelInfo, DownloadOptions, Outcome, PAGE_SIZE,
-    Progress, Stream, Target, Tools, VideoContainer, VideoInfo,
+    self, AudioFormat, BatchEvent, BatchSummary, ChannelEntry, ChannelInfo, Cookies, DownloadOptions, Outcome,
+    PAGE_SIZE, Progress, Stream, Target, Tools, VideoContainer, VideoInfo,
 };
+use lader_core::process::open_in_file_manager;
 use lader_core::{format, http, urls};
 
 use crate::{AppState, AppWindow, ChannelRow, ComponentRow, DialogIcon, JobState, Screen, Tone};
@@ -927,7 +928,7 @@ impl Controller {
         let Some(tools) = self.ready_tools(Retry::Fetch(url.clone())) else { return };
         let is_channel = urls::is_channel_url(&url);
         self.begin_fetch(if is_channel { "Загружаем список видео…" } else { "Получаем информацию о видео…" });
-        let cookies = self.settings.cookies_browser.clone();
+        let cookies = Cookies::from_browser(&self.settings.cookies_browser);
         thread::spawn(move || {
             if is_channel {
                 let list_url = urls::normalize_channel_url(&url);
@@ -1102,7 +1103,7 @@ impl Controller {
         channel.loading_more = true;
         self.ui.global::<AppState>().set_loading_more(true);
         let (url, offset) = (channel.url.clone(), channel.entries.len());
-        let cookies = self.settings.cookies_browser.clone();
+        let cookies = Cookies::from_browser(&self.settings.cookies_browser);
         thread::spawn(move || {
             let result = ytdlp::get_channel_videos(&tools, &url, offset, PAGE_SIZE, &cookies);
             post(move |c| c.on_more_loaded(url, result));
@@ -1188,7 +1189,7 @@ impl Controller {
             url: video.url.clone(),
             target,
             out_dir: self.dir_or_root(&s.get_single_dir()),
-            cookies_browser: self.settings.cookies_browser.clone(),
+            cookies: Cookies::from_browser(&self.settings.cookies_browser),
             connections: self.settings.connections,
         };
         let title = video.info.title.clone();
@@ -1228,7 +1229,7 @@ impl Controller {
             url: String::new(),
             target,
             out_dir: self.dir_or_root(&s.get_batch_dir()),
-            cookies_browser: self.settings.cookies_browser.clone(),
+            cookies: Cookies::from_browser(&self.settings.cookies_browser),
             connections: self.settings.connections,
         };
         self.pending = None;
@@ -1737,37 +1738,6 @@ fn stage_fraction(stage: Option<Stage>) -> Option<f32> {
     match stage {
         Some(Stage::Downloading { done, total: Some(total), .. }) if total > 0 => Some(done as f32 / total as f32),
         _ => None,
-    }
-}
-
-/// Открывает папку в проводнике; если известен файл — выделяет его.
-#[cfg(windows)]
-fn open_in_file_manager(dir: &Path, file: Option<&Path>) {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-    // Explorer понимает только `/select,"путь"` одним аргументом, без
-    // экранирования, которое добавил бы Command::arg. Код возврата не
-    // проверяем: explorer возвращает 1 даже при успехе.
-    let _ = match file {
-        Some(f) => Command::new("explorer").raw_arg(format!("/select,\"{}\"", f.display())).spawn(),
-        None => Command::new("explorer").arg(dir).spawn(),
-    };
-}
-
-#[cfg(target_os = "macos")]
-fn open_in_file_manager(dir: &Path, file: Option<&Path>) {
-    let _ = match file {
-        Some(f) => std::process::Command::new("open").arg("-R").arg(f).spawn(),
-        None => std::process::Command::new("open").arg(dir).spawn(),
-    };
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn open_in_file_manager(dir: &Path, _file: Option<&Path>) {
-    for bin in ["xdg-open", "nautilus", "dolphin", "thunar", "nemo"] {
-        if std::process::Command::new(bin).arg(dir).spawn().is_ok() {
-            return;
-        }
     }
 }
 

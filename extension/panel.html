@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lader</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 20h14"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16.5 9.5"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="bar">
+    <div class="brand"><img src="icons/32.png" alt="" width="20" height="20"><span>Lader</span></div>
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="get">Скачать</button>
+      <button type="button" role="tab" data-tab="jobs">Загрузки<span class="count" id="jobs-count" hidden></span></button>
+    </nav>
+    <button type="button" class="icon-btn" id="open-settings" title="Настройки" aria-label="Настройки"><svg class="icon"><use href="#i-gear"/></svg></button>
+  </header>
+
+  <div id="banner" class="banner" hidden>
+    <svg class="icon banner-icon"><use href="#i-alert"/></svg>
+    <div class="banner-body">
+      <div class="banner-title"></div>
+      <div class="banner-text"></div>
+      <div class="progress banner-progress" hidden><div class="progress-fill"></div></div>
+      <button type="button" class="btn banner-action" hidden></button>
+    </div>
+    <button type="button" class="icon-btn small banner-close" title="Скрыть" aria-label="Скрыть" hidden><svg class="icon"><use href="#i-close"/></svg></button>
+  </div>
+
+  <main>
+    <!-- ── Скачать ─────────────────────────────────────────────── -->
+    <section id="screen-get" class="screen" hidden>
+      <form id="source" class="source" autocomplete="off">
+        <input id="url" type="text" placeholder="Ссылка на видео, плейлист, канал или твит" spellcheck="false">
+        <button id="fetch" class="btn primary" type="submit">Получить</button>
+      </form>
+
+      <div id="get-empty" class="empty">
+        <svg class="icon empty-icon"><use href="#i-download"/></svg>
+        <div class="empty-title">Вставьте ссылку и нажмите «Получить»</div>
+        <div class="empty-text">Видео и Shorts YouTube, плейлисты и каналы целиком, твиты X с видео. На страницах YouTube и X есть кнопка «Скачать», а у ссылок есть пункт «Скачать через Lader» в контекстном меню.</div>
+      </div>
+
+      <div id="get-loading" class="loading" hidden>
+        <div class="spinner"></div>
+        <div id="loading-text"></div>
+      </div>
+
+      <div id="get-video" class="card" hidden>
+        <div class="thumb"><img id="video-thumb" alt="" referrerpolicy="no-referrer"><span id="video-duration" class="duration"></span></div>
+        <div class="video-title" id="video-title"></div>
+        <div class="muted" id="video-uploader"></div>
+        <button type="button" class="link" id="video-playlist" hidden>Видео из плейлиста. Открыть весь плейлист</button>
+        <div class="row2">
+          <label class="field"><span>Качество</span><select id="quality"></select></label>
+          <label class="field"><span>Формат</span><select id="format"></select></label>
+        </div>
+        <div class="hint" id="format-hint"></div>
+        <div class="field">
+          <span>Папка</span>
+          <div class="path"><input id="single-dir" type="text" placeholder="Папка загрузок" spellcheck="false"><button type="button" class="btn" data-browse="single-dir">Обзор…</button></div>
+        </div>
+        <button type="button" id="download" class="btn primary wide"><svg class="icon"><use href="#i-download"/></svg>Скачать</button>
+      </div>
+
+      <div id="get-channel" hidden>
+        <div class="channel-head">
+          <div class="channel-title" id="channel-title"></div>
+          <div class="channel-tools">
+            <span class="muted" id="selected-count"></span>
+            <span class="spacer"></span>
+            <button type="button" class="btn small" id="select-all">Выбрать все</button>
+            <button type="button" class="btn small" id="select-none">Снять все</button>
+          </div>
+        </div>
+        <div id="channel-rows" class="rows" role="list"></div>
+        <button type="button" id="load-more" class="btn wide" hidden>Загрузить ещё</button>
+        <div class="card batch">
+          <div class="row2">
+            <label class="field"><span>Качество</span><select id="batch-quality"></select></label>
+            <label class="field"><span>Формат</span><select id="batch-format"></select></label>
+          </div>
+          <div class="hint" id="batch-format-hint"></div>
+          <div class="field">
+            <span>Папка</span>
+            <div class="path"><input id="batch-dir" type="text" placeholder="Папка загрузок" spellcheck="false"><button type="button" class="btn" data-browse="batch-dir">Обзор…</button></div>
+          </div>
+          <button type="button" id="download-batch" class="btn primary wide"><svg class="icon"><use href="#i-download"/></svg><span id="download-batch-text">Скачать выбранные</span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Загрузки ────────────────────────────────────────────── -->
+    <section id="screen-jobs" class="screen" hidden>
+      <div class="jobs-head">
+        <span class="muted" id="jobs-summary"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" id="clear-jobs">Очистить завершённые</button>
+      </div>
+      <div id="jobs-list"></div>
+      <div id="jobs-empty" class="empty">
+        <svg class="icon empty-icon"><use href="#i-clock"/></svg>
+        <div class="empty-title">Загрузок пока нет</div>
+        <div class="empty-text">Видео качаются по очереди, по одному: можно добавить сразу несколько, а браузером пользоваться как обычно.</div>
+      </div>
+    </section>
+
+    <!-- ── Настройки ───────────────────────────────────────────── -->
+    <section id="screen-settings" class="screen" hidden>
+      <div class="screen-head">
+        <button type="button" class="icon-btn" data-back title="Назад" aria-label="Назад"><svg class="icon"><use href="#i-back"/></svg></button>
+        <h1>Настройки</h1>
+      </div>
+      <div class="field">
+        <span>Корневая папка загрузок</span>
+        <div class="path"><input id="root-dir" type="text" placeholder="Папка загрузок" spellcheck="false"><button type="button" class="btn" data-browse="root-dir">Обзор…</button></div>
+        <small>Внутри неё создаются папки каналов.</small>
+      </div>
+      <label class="field">
+        <span>Cookies</span>
+        <select id="cookies"></select>
+        <small id="cookies-hint"></small>
+      </label>
+      <label class="field">
+        <span>Потоков на файл</span>
+        <select id="connections"></select>
+        <small>Файл качается в несколько соединений сразу. Чем их больше, тем сильнее загрузка теснит остальных в сети (звонки, игры).</small>
+      </label>
+      <label class="check"><input type="checkbox" id="page-buttons"><span>Кнопка «Скачать» на страницах YouTube и X</span></label>
+      <button type="button" class="btn wide" id="settings-components">Компоненты: yt-dlp, Deno, ffmpeg</button>
+      <div class="about" id="about"></div>
+    </section>
+
+    <!-- ── Компоненты ──────────────────────────────────────────── -->
+    <section id="screen-components" class="screen" hidden>
+      <div class="screen-head">
+        <button type="button" class="icon-btn" data-back title="Назад" aria-label="Назад"><svg class="icon"><use href="#i-back"/></svg></button>
+        <h1 id="components-title">Компоненты</h1>
+      </div>
+      <p class="muted" id="components-intro"></p>
+      <div id="component-rows" class="component-rows"></div>
+      <div class="components-actions">
+        <button type="button" class="btn primary" id="install-missing" hidden></button>
+        <button type="button" class="btn" id="cancel-install" hidden>Отмена</button>
+        <button type="button" class="btn" id="check-updates">Проверить обновления</button>
+      </div>
+      <div class="components-folder">
+        <span class="muted" id="components-folder"></span>
+        <button type="button" class="btn small" id="open-components-folder"><svg class="icon"><use href="#i-folder"/></svg>Открыть</button>
+      </div>
+    </section>
+
+    <!-- ── Помощник не найден ──────────────────────────────────── -->
+    <section id="screen-host" class="screen" hidden>
+      <div class="host-card">
+        <svg class="icon host-icon"><use href="#i-alert"/></svg>
+        <h1 id="host-title"></h1>
+        <div id="host-text" class="host-text"></div>
+        <ol id="host-steps" class="host-steps"></ol>
+        <pre id="host-command" class="command" hidden></pre>
+        <div class="host-actions">
+          <button type="button" class="btn primary" id="host-retry"><svg class="icon"><use href="#i-refresh"/></svg>Проверить снова</button>
+          <button type="button" class="btn" id="host-copy" hidden>Скопировать команду</button>
+        </div>
+        <details class="host-details" id="host-details" hidden>
+          <summary>Подробности</summary>
+          <pre id="host-error"></pre>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="status">
+    <button type="button" id="pill" class="pill"><span class="dot"></span><span id="pill-text"></span></button>
+  </footer>
+
+  <div id="dialog" class="backdrop" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <svg class="icon dialog-icon"><use href="#i-alert"/></svg>
+        <h2 id="dialog-title"></h2>
+      </div>
+      <div class="dialog-text" id="dialog-text"></div>
+      <div class="dialog-buttons" id="dialog-buttons"></div>
+    </div>
+  </div>
+</body>
+</html>
