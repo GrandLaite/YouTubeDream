@@ -230,7 +230,7 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis --yes --no-progress
-          node packaging/build-extension.mjs --key "$env:RUNNER_TEMP\lader-extension.pem" --host target/host/lader-host.exe --makensis makensis
+          node packaging/build-extension.mjs --key "$env:RUNNER_TEMP\lader-extension.pem" --host target/host/lader-host.exe --makensis "C:\Program Files (x86)\NSIS\makensis.exe"
 
       - name: Удаление закрытого ключа
         if: always()
